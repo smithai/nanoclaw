@@ -11,6 +11,7 @@ import https from 'https';
 import path from 'path';
 
 import { DATA_DIR } from './config.js';
+import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
 
 interface ClickUpResult {
@@ -19,20 +20,15 @@ interface ClickUpResult {
   data?: unknown;
 }
 
-function getApiKey(): string | null {
-  return process.env.CLICKUP_API_KEY ?? null;
-}
-
-function getTeamId(): string {
-  const teamId = process.env.CLICKUP_TEAM_ID;
-  if (!teamId) throw new Error('CLICKUP_TEAM_ID not set');
-  return teamId;
+function getCredentials(): { apiKey: string | null; teamId: string | null } {
+  const env = readEnvFile(['CLICKUP_API_KEY', 'CLICKUP_TEAM_ID']);
+  return { apiKey: env.CLICKUP_API_KEY ?? null, teamId: env.CLICKUP_TEAM_ID ?? null };
 }
 
 function clickupRequest(method: string, apiPath: string, body?: object): Promise<ClickUpResult> {
-  const apiKey = getApiKey();
+  const { apiKey } = getCredentials();
   if (!apiKey) {
-    return Promise.resolve({ success: false, message: 'CLICKUP_API_KEY not set in environment' });
+    return Promise.resolve({ success: false, message: 'CLICKUP_API_KEY not set in .env' });
   }
 
   return new Promise((resolve) => {
@@ -72,7 +68,8 @@ function clickupRequest(method: string, apiPath: string, body?: object): Promise
 }
 
 async function handleListTasks(data: Record<string, unknown>): Promise<ClickUpResult> {
-  const teamId = getTeamId();
+  const { teamId } = getCredentials();
+  if (!teamId) return { success: false, message: 'CLICKUP_TEAM_ID not set in .env' };
   const statuses = (data.statuses as string[]) ?? ['to do', 'in progress', 'in review'];
   const assigneeId = data.assignee_id as string | undefined;
   const page = (data.page as number) ?? 0;
@@ -100,7 +97,8 @@ async function handleGetTask(data: Record<string, unknown>): Promise<ClickUpResu
   if (!taskId) return { success: false, message: 'task_id is required' };
 
   const isCustomId = /^[A-Z]+-\d+$/.test(taskId);
-  const teamId = getTeamId();
+  const { teamId } = getCredentials();
+  if (!teamId) return { success: false, message: 'CLICKUP_TEAM_ID not set in .env' };
   const apiPath = isCustomId
     ? `/task/${taskId}?custom_task_ids=true&team_id=${teamId}`
     : `/task/${taskId}`;
