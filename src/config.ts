@@ -1,4 +1,3 @@
-import os from 'os';
 import path from 'path';
 
 import { readEnvFile } from './env.js';
@@ -9,6 +8,7 @@ import { readEnvFile } from './env.js';
 const envConfig = readEnvFile([
   'ASSISTANT_NAME',
   'ASSISTANT_HAS_OWN_NUMBER',
+  'SLACK_ONLY',
 ]);
 
 export const ASSISTANT_NAME =
@@ -20,7 +20,7 @@ export const SCHEDULER_POLL_INTERVAL = 60000;
 
 // Absolute paths needed for container mounts
 const PROJECT_ROOT = process.cwd();
-const HOME_DIR = process.env.HOME || os.homedir();
+const HOME_DIR = process.env.HOME || '/Users/user';
 
 // Mount security: allowlist stored OUTSIDE project root, never mounted into containers
 export const MOUNT_ALLOWLIST_PATH = path.join(
@@ -67,3 +67,9 @@ export const TRIGGER_PATTERN = new RegExp(
 // Uses system timezone by default
 export const TIMEZONE =
   process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+// Slack configuration
+// SLACK_BOT_TOKEN and SLACK_APP_TOKEN are read directly by SlackChannel
+// from .env via readEnvFile() to keep secrets off process.env.
+export const SLACK_ONLY =
+  (process.env.SLACK_ONLY || envConfig.SLACK_ONLY) === 'true';
