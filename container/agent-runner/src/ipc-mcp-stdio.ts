@@ -280,6 +280,98 @@ Use available_groups.json to find the JID for a group. The folder name should be
   },
 );
 
+// ── ClickUp tools ──────────────────────────────────────────────────────────
+
+const CLICKUP_RESULTS_DIR = path.join(IPC_DIR, 'clickup_results');
+
+async function waitForClickUpResult(requestId: string, maxWait = 30000): Promise<{ success: boolean; message: string; data?: unknown }> {
+  const resultFile = path.join(CLICKUP_RESULTS_DIR, `${requestId}.json`);
+  const pollInterval = 500;
+  let elapsed = 0;
+  while (elapsed < maxWait) {
+    if (fs.existsSync(resultFile)) {
+      try {
+        const result = JSON.parse(fs.readFileSync(resultFile, 'utf-8'));
+        fs.unlinkSync(resultFile);
+        return result;
+      } catch (err) {
+        return { success: false, message: `Failed to read result: ${err}` };
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollInterval));
+    elapsed += pollInterval;
+  }
+  return { success: false, message: 'ClickUp request timed out (30s)' };
+}
+
+server.tool(
+  'clickup_list_tasks',
+  `List tasks from the ClickUp workspace filtered by status (and optionally assignee).
+Default statuses: to do, in progress, in review.`,
+  {
+    statuses: z.array(z.string()).optional().describe('Statuses to filter by (default: ["to do", "in progress", "in review"])'),
+    assignee_id: z.string().optional().describe('ClickUp user ID to filter by assignee'),
+    page: z.number().optional().describe('Page number for pagination (default: 0)'),
+  },
+  async (args) => {
+    const requestId = `clist-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    writeIpcFile(TASKS_DIR, { type: 'clickup_list_tasks', requestId, ...args, timestamp: new Date().toISOString() });
+    const result = await waitForClickUpResult(requestId);
+    if (!result.success) return { content: [{ type: 'text' as const, text: `ClickUp error: ${result.message}` }], isError: true };
+    const tasks = result.data as Array<{ id: string; name: string; status: string; assignees: string[] }>;
+    if (!tasks.length) return { content: [{ type: 'text' as const, text: 'No tasks found.' }] };
+    const lines = tasks.map((t) => `- [${t.id}] ${t.name} (${t.status})${t.assignees?.length ? ` — ${t.assignees.join(', ')}` : ''}`);
+    return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+  },
+);
+
+server.tool(
+  'clickup_get_task',
+  'Get full details for a ClickUp task by ID (custom ID like PROJ-123 or internal ClickUp ID).',
+  { task_id: z.string().describe('Task ID (e.g. PROJ-13593) or internal ClickUp ID') },
+  async (args) => {
+    const requestId = `cget-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    writeIpcFile(TASKS_DIR, { type: 'clickup_get_task', requestId, task_id: args.task_id, timestamp: new Date().toISOString() });
+    const result = await waitForClickUpResult(requestId);
+    if (!result.success) return { content: [{ type: 'text' as const, text: `ClickUp error: ${result.message}` }], isError: true };
+    const t = result.data as { id: string; name: string; status: string; description: string; assignees: string[]; url: string };
+    const text = [`**[${t.id}] ${t.name}**`, `Status: ${t.status}`, `Assignees: ${t.assignees?.join(', ') || 'none'}`, `URL: ${t.url}`, t.description ? `\nDescription:\n${t.description.slice(0, 500)}` : ''].filter(Boolean).join('\n');
+    return { content: [{ type: 'text' as const, text }] };
+  },
+);
+
+server.tool(
+  'clickup_add_comment',
+  'Add a comment to a ClickUp task.',
+  {
+    task_id: z.string().describe('Task ID (e.g. PROJ-123) or internal ClickUp ID'),
+    comment_text: z.string().min(1).describe('Comment text to post'),
+  },
+  async (args) => {
+    const requestId = `ccomment-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    writeIpcFile(TASKS_DIR, { type: 'clickup_add_comment', requestId, task_id: args.task_id, comment_text: args.comment_text, timestamp: new Date().toISOString() });
+    const result = await waitForClickUpResult(requestId);
+    if (!result.success) return { content: [{ type: 'text' as const, text: `ClickUp error: ${result.message}` }], isError: true };
+    return { content: [{ type: 'text' as const, text: `Comment added to ${args.task_id}.` }] };
+  },
+);
+
+server.tool(
+  'clickup_update_status',
+  'Update the status of a ClickUp task. Common statuses: "to do", "in progress", "in review", "done".',
+  {
+    task_id: z.string().describe('Task ID (e.g. PROJ-123) or internal ClickUp ID'),
+    status: z.string().describe('New status (e.g. "in progress", "done")'),
+  },
+  async (args) => {
+    const requestId = `cstatus-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    writeIpcFile(TASKS_DIR, { type: 'clickup_update_status', requestId, task_id: args.task_id, status: args.status, timestamp: new Date().toISOString() });
+    const result = await waitForClickUpResult(requestId);
+    if (!result.success) return { content: [{ type: 'text' as const, text: `ClickUp error: ${result.message}` }], isError: true };
+    return { content: [{ type: 'text' as const, text: `${args.task_id} status updated to "${args.status}".` }] };
+  },
+);
+
 // Start the stdio transport
 const transport = new StdioServerTransport();
 await server.connect(transport);

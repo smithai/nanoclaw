@@ -3,6 +3,8 @@ import path from 'path';
 
 import { CronExpressionParser } from 'cron-parser';
 
+import { handleClickupIpc } from './clickup-ipc.js';
+
 import {
   DATA_DIR,
   IPC_POLL_INTERVAL,
@@ -380,6 +382,15 @@ export async function processTaskIpc(
         );
       }
       break;
+
+    case 'clickup_list_tasks':
+    case 'clickup_get_task':
+    case 'clickup_add_comment':
+    case 'clickup_update_status': {
+      const handled = await handleClickupIpc(data, sourceGroup, isMain);
+      if (!handled) logger.warn({ type: data.type }, 'Unhandled ClickUp IPC type');
+      break;
+    }
 
     default:
       logger.warn({ type: data.type }, 'Unknown IPC task type');
